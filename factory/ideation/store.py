@@ -174,6 +174,15 @@ def _is_turso_mode() -> bool:
     return bool(os.environ.get("LIBSQL_URL") and os.environ.get("LIBSQL_AUTH_TOKEN"))
 
 
+# Process-level cache flags. Sync + schema setup are expensive on Streamlit
+# Cloud (Turso round trip + 7 CREATE TABLE statements per connection open).
+# We do them once per process and skip on subsequent connections — the local
+# replica file persists across opens, so other connections see the schema
+# created by the first one.
+_first_sync_done: bool = False
+_schema_initialized: bool = False
+
+
 class _DictRow(dict):
     """Row class that supports BOTH dict-style (row['name']) AND sqlite3.Row-
     style (row[0], iter(row) → values) access. Used as row_factory on both
@@ -217,7 +226,10 @@ def _open_raw_sqlite(db_path: Path) -> sqlite3.Connection:
 
 def _open_raw_turso(db_path: Path):  # type: ignore[no-untyped-def]
     """Embedded replica: a local SQLite file that bidirectionally syncs to
-    the remote Turso DB. The Connection object is sqlite3-API-compatible."""
+    the remote Turso DB. The Connection object is sqlite3-API-compatible.
+    Initial sync is done once per process (cached); subsequent opens skip
+    the network round trip — the local replica already has the data."""
+    global _first_sync_done
     import libsql_experimental as libsql
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = libsql.connect(
@@ -226,26 +238,31 @@ def _open_raw_turso(db_path: Path):  # type: ignore[no-untyped-def]
         auth_token=os.environ["LIBSQL_AUTH_TOKEN"],
     )
     _set_dict_row_factory(conn)
-    # Pull latest from remote on open. Non-fatal if it fails (e.g. cold
-    # start with empty remote): we'll still work locally and push on commit.
-    try:
-        conn.sync()
-    except Exception as e:  # noqa: BLE001
-        print(f"[store] libsql initial sync failed (non-fatal): {e}",
-              file=sys.stderr)
+    if not _first_sync_done:
+        try:
+            conn.sync()
+            _first_sync_done = True
+        except Exception as e:  # noqa: BLE001
+            print(f"[store] libsql initial sync failed (non-fatal): {e}",
+                  file=sys.stderr)
     return conn
 
 
 def open_connection(db_path: Path = DB_PATH):  # type: ignore[no-untyped-def]
     """Open a fresh DB connection (raw — caller is responsible for close()
     and commit()). Routes to libsql in Turso mode, sqlite3 otherwise.
-    Schema + migrations are applied here so callers can assume tables exist."""
+    Schema + migrations are applied once per process (cached) — subsequent
+    opens skip the IF NOT EXISTS overhead since the DB persists across
+    connections."""
+    global _schema_initialized
     if _is_turso_mode():
         conn = _open_raw_turso(db_path)
     else:
         conn = _open_raw_sqlite(db_path)
-    conn.executescript(SCHEMA)
-    _apply_migrations(conn)
+    if not _schema_initialized:
+        conn.executescript(SCHEMA)
+        _apply_migrations(conn)
+        _schema_initialized = True
     return conn
 
 
