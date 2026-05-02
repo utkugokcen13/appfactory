@@ -81,33 +81,51 @@ def current_user() -> str | None:
     return st.session_state.get("username")
 
 
+def _render_sidebar_user(auth: stauth.Authenticate) -> None:
+    """Sidebar pill showing the logged-in user + a Logout button. Lives in
+    auth.py (not nav.py) so every page's sidebar is consistent."""
+    with st.sidebar:
+        user = st.session_state.get("name") or st.session_state.get("username", "")
+        st.markdown(
+            f"<div class='auth-user-pill'>"
+            f"<span class='auth-user-dot'></span>"
+            f"<span class='auth-user-name'>{user}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        auth.logout(button_name="Logout", location="sidebar", key="logout_btn")
+
+
 def require_login() -> str:
     """Block the page until the user is logged in. Returns the username on
     success. Call this once at the top of every page (after set_page_config
-    + styles.inject() but before any data fetch)."""
+    + styles.inject() but before any data fetch).
+
+    Critical: we call `auth.login()` ONLY when the user isn't already
+    authenticated. streamlit-authenticator 0.4.x renders the form
+    unconditionally when login() is invoked — calling it for already-logged-
+    in users leaves a stale form on screen until the next user interaction.
+    """
     auth = _get_authenticator()
 
-    # Render login widget. New API (>=0.3.x) returns None and writes to
-    # st.session_state directly: authentication_status / name / username.
-    auth.login(location="main", key="login_widget")
-
-    status = st.session_state.get("authentication_status")
-    if status is True:
-        # Already logged in — show a tiny user pill + logout button in the
-        # sidebar. Done here (rather than in nav.py) so it's guaranteed to
-        # appear regardless of which page rendered the sidebar.
-        with st.sidebar:
-            user = st.session_state.get("name") or st.session_state.get("username", "")
-            st.markdown(
-                f"<div class='auth-user-pill'>"
-                f"<span class='auth-user-dot'></span>"
-                f"<span class='auth-user-name'>{user}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            auth.logout(button_name="Logout", location="sidebar", key="logout_btn")
+    # Fast path: cookie or previous login already set the status to True.
+    # Skip rendering the form widget entirely.
+    if st.session_state.get("authentication_status") is True:
+        _render_sidebar_user(auth)
         return st.session_state.get("username", "")
 
+    # Otherwise, render the login form. This both consumes the cookie (in
+    # case we missed it above) and shows the username/password inputs.
+    auth.login(location="main", key="login_widget")
+
+    # If login() just succeeded (form submission or cookie acceptance), the
+    # session state is now True — but we already drew the form earlier in
+    # this run. Force a rerun so the page re-renders via the fast path with
+    # no stale form on screen.
+    if st.session_state.get("authentication_status") is True:
+        st.rerun()
+
+    status = st.session_state.get("authentication_status")
     if status is False:
         st.error("Username veya şifre hatalı.")
     elif status is None:
