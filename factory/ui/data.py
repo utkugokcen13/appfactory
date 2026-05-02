@@ -117,7 +117,34 @@ def _conn():  # type: ignore[no-untyped-def]
 
 
 def _rows(cur) -> list[dict[str, Any]]:
-    return [dict(r) for r in cur.fetchall()]
+    """Build dicts from cursor.description + values.
+
+    libsql_experimental ignores `conn.row_factory = _DictRow`, so cursors
+    return plain tuples on Turso mode. Building from `cursor.description`
+    works on both backends and is the safest path.
+    """
+    rows = cur.fetchall()
+    if not rows:
+        return []
+    cols = [c[0] for c in cur.description]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        if isinstance(r, dict):
+            out.append(dict(r))  # already a Mapping (sqlite3 _DictRow path)
+        else:
+            out.append(dict(zip(cols, r)))
+    return out
+
+
+def _row(cur) -> dict[str, Any] | None:
+    """Like _rows() but for a single fetchone() result."""
+    r = cur.fetchone()
+    if r is None:
+        return None
+    if isinstance(r, dict):
+        return dict(r)
+    cols = [c[0] for c in cur.description]
+    return dict(zip(cols, r))
 
 
 def _duration_seconds(started_at: str | None, finished_at: str | None) -> float | None:
@@ -147,10 +174,10 @@ def list_runs(limit: int = 50) -> list[dict[str, Any]]:
 @st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_run(run_id: int) -> dict[str, Any] | None:
     with _conn() as c:
-        row = c.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-    if not row:
+        cur = c.execute("SELECT * FROM runs WHERE id = ?", (run_id,))
+        r = _row(cur)
+    if not r:
         return None
-    r = dict(row)
     r["duration_seconds"] = _duration_seconds(r.get("started_at"), r.get("finished_at"))
     return r
 
@@ -212,10 +239,11 @@ def top_pending_ideas(limit: int = 5) -> list[dict[str, Any]]:
 @st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_idea(idea_id: int) -> dict[str, Any] | None:
     with _conn() as c:
-        row = c.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
-    if not row:
+        cur = c.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,))
+        r = _row(cur)
+    if not r:
         return None
-    return _hydrate_idea(dict(row))
+    return _hydrate_idea(r)
 
 
 @st.cache_data(ttl=_CACHE_TTL, show_spinner=False)

@@ -214,6 +214,66 @@ def _set_dict_row_factory(conn) -> None:  # type: ignore[no-untyped-def]
         pass
 
 
+class _DictCursorWrapper:
+    """Wraps a libsql Cursor so fetchone/fetchall return _DictRow instances.
+
+    libsql_experimental ignores `conn.row_factory`, so cursors return plain
+    tuples even when the factory is set. We re-implement the factory in
+    Python by wrapping each cursor we hand out.
+    """
+    __slots__ = ("_cur",)
+
+    def __init__(self, cur) -> None:  # type: ignore[no-untyped-def]
+        self._cur = cur
+
+    def __getattr__(self, name):  # type: ignore[no-untyped-def]
+        return getattr(self._cur, name)
+
+    def _wrap(self, row):  # type: ignore[no-untyped-def]
+        if row is None:
+            return None
+        if isinstance(row, _DictRow):
+            return row
+        return _DictRow(self._cur, row)
+
+    def fetchone(self):  # type: ignore[no-untyped-def]
+        return self._wrap(self._cur.fetchone())
+
+    def fetchall(self):  # type: ignore[no-untyped-def]
+        return [self._wrap(r) for r in self._cur.fetchall()]
+
+    def fetchmany(self, size=None):  # type: ignore[no-untyped-def]
+        rows = self._cur.fetchmany(size) if size is not None else self._cur.fetchmany()
+        return [self._wrap(r) for r in rows]
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        for r in self._cur:
+            yield self._wrap(r)
+
+
+class _DictConnectionWrapper:
+    """Wraps a libsql Connection so every cursor it returns is a
+    _DictCursorWrapper. Existing call sites can keep using `row['col']`,
+    `dict(row)`, etc. without knowing the backend doesn't honor row_factory.
+    """
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn) -> None:  # type: ignore[no-untyped-def]
+        self._conn = conn
+
+    def __getattr__(self, name):  # type: ignore[no-untyped-def]
+        return getattr(self._conn, name)
+
+    def execute(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return _DictCursorWrapper(self._conn.execute(*args, **kwargs))
+
+    def executemany(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return _DictCursorWrapper(self._conn.executemany(*args, **kwargs))
+
+    def cursor(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return _DictCursorWrapper(self._conn.cursor(*args, **kwargs))
+
+
 def _open_raw_sqlite(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=15.0)
@@ -226,26 +286,29 @@ def _open_raw_sqlite(db_path: Path) -> sqlite3.Connection:
 
 def _open_raw_turso(db_path: Path):  # type: ignore[no-untyped-def]
     """Embedded replica: a local SQLite file that bidirectionally syncs to
-    the remote Turso DB. The Connection object is sqlite3-API-compatible.
+    the remote Turso DB. The Connection object is sqlite3-API-compatible
+    EXCEPT that it ignores `row_factory` — we wrap it in a Python adapter
+    that re-implements the factory so callers can keep using `row['col']`
+    and `dict(row)`.
+
     Initial sync is done once per process (cached); subsequent opens skip
     the network round trip — the local replica already has the data."""
     global _first_sync_done
     import libsql_experimental as libsql
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = libsql.connect(
+    raw_conn = libsql.connect(
         str(db_path),
         sync_url=os.environ["LIBSQL_URL"],
         auth_token=os.environ["LIBSQL_AUTH_TOKEN"],
     )
-    _set_dict_row_factory(conn)
     if not _first_sync_done:
         try:
-            conn.sync()
+            raw_conn.sync()
             _first_sync_done = True
         except Exception as e:  # noqa: BLE001
             print(f"[store] libsql initial sync failed (non-fatal): {e}",
                   file=sys.stderr)
-    return conn
+    return _DictConnectionWrapper(raw_conn)
 
 
 def open_connection(db_path: Path = DB_PATH):  # type: ignore[no-untyped-def]

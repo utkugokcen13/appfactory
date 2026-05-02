@@ -97,10 +97,10 @@ def mark_stale_runs() -> int:
 
 def in_flight_run() -> dict[str, Any] | None:
     with _conn() as c:
-        row = c.execute(
+        cur = c.execute(
             "SELECT * FROM runs WHERE status='running' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    return dict(row) if row else None
+        )
+        return _data._row(cur)
 
 
 def in_flight_progress(run_id: int) -> dict[str, Any]:
