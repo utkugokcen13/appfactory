@@ -1,0 +1,17 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+output/
+.venv/
+.DS_Store
+*.egg-info/
+
+# Streamlit secrets — only the .example file gets committed
+.streamlit/secrets.toml
+
+# Local SQLite (regenerated on each run; in prod we use Turso)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

@@ -1,0 +1,38 @@
+credentials:
+  usernames:
+    dogancan:
+      email: dogancan@local
+      failed_login_attempts: 0
+      logged_in: false
+      name: dogancan
+      password: $2b$12$kg/mt2oubkc/9Zq2sdniEOSj1NesVS7E4soXCaw5hm2nkh/HFi/T.
+    dogukan:
+      email: dogukan@local
+      failed_login_attempts: 0
+      logged_in: false
+      name: dogukan
+      password: $2b$12$i7d1mOFRjDvLOxp8n4h0E.aO.qSahzgmb7AglC1TdEiutEIQYtpQO
+    kaan:
+      email: kaan@local
+      failed_login_attempts: 0
+      logged_in: false
+      name: kaan
+      password: $2b$12$8EYINtBL9c.iz.4OhTiQS.Wf/DNl66KM2RLx4oBxOo2qsyzKavjt2
+    melisa:
+      email: melisa@local
+      failed_login_attempts: 0
+      logged_in: false
+      name: melisa
+      password: $2b$12$UxlNwn.sLEVZI1nlnM9nx.9HTK404yADJoQfHxAYOGCXjuIjSd.mO
+    oznur:
+      email: oznur@local
+      failed_login_attempts: 0
+      logged_in: false
+      name: oznur
+      password: $2b$12$32Hf0xNW/6f9B6Ps9Xy5VO9wZ3gv3.sma3dej.ut3yZH8bFIsW90q
+    utku:
+      email: utku@local
+      failed_login_attempts: 0
+      logged_in: false
+      name: utku
+      password: $2b$12$AJ4UDaCY7QSLAMqWMjCvr.raRlC99yVl91jfRehw7SBEU505YzZa.

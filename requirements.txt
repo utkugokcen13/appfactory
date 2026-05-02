@@ -1,0 +1,15 @@
+anthropic[bedrock]>=0.52.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+trafilatura>=1.12.0
+streamlit>=1.40.0
+plotly>=5.24.0
+pandas>=2.2.0
+pytrends>=4.9.2
+# Auth: bcrypt-hashed username/password gate
+streamlit-authenticator>=0.3.2
+bcrypt>=4.0.0
+PyYAML>=6.0
+# Persistent DB on Streamlit Cloud (ephemeral disk → Turso embedded replica)
+libsql-experimental>=0.0.40
