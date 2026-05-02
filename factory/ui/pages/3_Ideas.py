@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+# sys.path: ensure repo root is importable on Streamlit Cloud (see app.py).
+import sys as _sys
+from pathlib import Path as _Path
+_root = str(_Path(__file__).resolve().parents[3])
+if _root not in _sys.path:
+    _sys.path.insert(0, _root)
+
 from datetime import datetime, timedelta, timezone
 
 import streamlit as st

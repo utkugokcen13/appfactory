@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+# Streamlit Cloud puts `factory/ui/` on sys.path (not the repo root) when
+# running this script directly. Inject the repo root so `from factory.* …`
+# imports resolve. Must run BEFORE any factory imports.
+import sys as _sys
+from pathlib import Path as _Path
+_root = str(_Path(__file__).resolve().parents[2])
+if _root not in _sys.path:
+    _sys.path.insert(0, _root)
+
 from datetime import date
 
 import pandas as pd
