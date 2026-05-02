@@ -878,6 +878,31 @@ p, li, label, span {{ color: var(--text); }}
   margin: 4px 0 6px;
 }}
 
+/* ───── Auth redirect transition (post-login spinner) ───────────────── */
+.auth-redirect {{
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px;
+  margin: 80px auto;
+  max-width: 380px;
+  padding: 36px 28px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  text-align: center;
+}}
+.auth-redirect-spinner {{
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 3px solid rgba(129,140,248,0.20);
+  border-top-color: var(--primary);
+  animation: spin 0.7s linear infinite;
+}}
+.auth-redirect-text {{
+  font-size: 14px; font-weight: 600;
+  color: var(--text-mid);
+  letter-spacing: -0.005em;
+}}
+
 /* ───── Auth: user pill + login form polish ─────────────────────────── */
 .auth-user-pill {{
   display: flex; align-items: center; gap: 8px;

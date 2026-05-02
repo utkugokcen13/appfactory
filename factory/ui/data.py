@@ -3,6 +3,10 @@
 The UI never mutates; it only reads from the same DB the agents write to.
 Each helper opens and closes its own connection for simplicity — SQLite is
 cheap to re-open and Streamlit reruns scripts on interaction.
+
+Reads are cached with `@st.cache_data` (short TTL) so tab switches and
+page reruns hit the cache instead of round-tripping to Turso every time.
+The TTL is short enough that subprocess writes propagate quickly.
 """
 
 from __future__ import annotations
@@ -13,7 +17,19 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+import streamlit as st
+
 from factory.ideation import store
+
+# Short TTL — queries refresh within seconds. Long enough to make snappy tab
+# switches; short enough that subprocess writes show up almost-immediately.
+_CACHE_TTL = 5
+
+
+def invalidate_caches() -> None:
+    """Clear all @st.cache_data entries in this module. Call after a write
+    that the user expects to see immediately (e.g. launching a run)."""
+    st.cache_data.clear()
 
 
 @contextmanager
@@ -49,6 +65,7 @@ def _duration_seconds(started_at: str | None, finished_at: str | None) -> float 
 
 # ───── Runs ──────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def list_runs(limit: int = 50) -> list[dict[str, Any]]:
     with _conn() as c:
         rows = _rows(c.execute(
@@ -59,6 +76,7 @@ def list_runs(limit: int = 50) -> list[dict[str, Any]]:
     return rows
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_run(run_id: int) -> dict[str, Any] | None:
     with _conn() as c:
         row = c.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -69,6 +87,7 @@ def get_run(run_id: int) -> dict[str, Any] | None:
     return r
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def latest_run() -> dict[str, Any] | None:
     runs = list_runs(limit=1)
     return runs[0] if runs else None
@@ -76,6 +95,7 @@ def latest_run() -> dict[str, Any] | None:
 
 # ───── Turns and blocks ──────────────────────────────────────────────────
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_turns(run_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         rows = _rows(c.execute(
@@ -85,6 +105,7 @@ def get_turns(run_id: int) -> list[dict[str, Any]]:
     return rows
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_blocks(turn_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         rows = _rows(c.execute(
@@ -100,6 +121,7 @@ def get_blocks(turn_id: int) -> list[dict[str, Any]]:
     return rows
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_queries_for_run(run_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         return store.tool_call_queries(c, run_id)
@@ -107,6 +129,7 @@ def get_queries_for_run(run_id: int) -> list[dict[str, Any]]:
 
 # ───── Ideas ─────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def top_pending_ideas(limit: int = 5) -> list[dict[str, Any]]:
     with _conn() as c:
         rows = _rows(c.execute(
@@ -118,6 +141,7 @@ def top_pending_ideas(limit: int = 5) -> list[dict[str, Any]]:
     return rows
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_idea(idea_id: int) -> dict[str, Any] | None:
     with _conn() as c:
         row = c.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
@@ -126,6 +150,7 @@ def get_idea(idea_id: int) -> dict[str, Any] | None:
     return _hydrate_idea(dict(row))
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def list_ideas_with_filters(
     *,
     min_score: int = 0,
@@ -178,6 +203,7 @@ def _hydrate_idea(idea: dict[str, Any]) -> dict[str, Any]:
     return idea
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def signal_source_counts() -> list[dict[str, Any]]:
     """How many signals we have per source. Drives the filter pills."""
     with _conn() as c:
@@ -187,6 +213,7 @@ def signal_source_counts() -> list[dict[str, Any]]:
     return rows
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def list_signals_with_filters(
     *,
     sources: list[str] | None = None,
@@ -225,6 +252,7 @@ def list_signals_with_filters(
     return rows
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def count_signals_with_filters(
     *,
     sources: list[str] | None = None,
@@ -250,17 +278,20 @@ def count_signals_with_filters(
     return int(row[0])
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_parent_idea(idea_id: int) -> dict[str, Any] | None:
     with _conn() as c:
         parent = store.get_parent_idea(c, idea_id)
     return _hydrate_idea(parent) if parent else None
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def parent_titles_map() -> dict[int, str]:
     with _conn() as c:
         return store.parent_titles_map(c)
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_signals_by_ids(signal_ids: list[int]) -> list[dict[str, Any]]:
     if not signal_ids:
         return []
@@ -282,6 +313,7 @@ def get_signals_by_ids(signal_ids: list[int]) -> list[dict[str, Any]]:
     return ordered
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def ideas_for_run(run_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         rows = _rows(c.execute(
@@ -330,6 +362,7 @@ def research_turns_for_idea(idea: dict[str, Any], lookback: int = 4) -> list[dic
 
 # ───── Dashboard metrics ─────────────────────────────────────────────────
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def db_counts() -> dict[str, int]:
     with _conn() as c:
         signals = c.execute("SELECT COUNT(*) FROM signals").fetchone()[0]
@@ -338,6 +371,7 @@ def db_counts() -> dict[str, int]:
     return {"signals": signals, "ideas": ideas, "runs": runs}
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def daily_ideation_metrics(days: int = 14) -> list[dict[str, Any]]:
     """One row per day for the last `days` days: idea_count, token_in, token_out, run_count.
 
@@ -374,6 +408,7 @@ def daily_ideation_metrics(days: int = 14) -> list[dict[str, Any]]:
     return out
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def last_activity_date() -> date | None:
     """Most recent run start date — drives the auto-extending sparkline window."""
     with _conn() as c:
@@ -390,21 +425,25 @@ def last_activity_date() -> date | None:
 
 # ───── Idea Lab / Chat ───────────────────────────────────────────────────
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def list_chats_for_idea(idea_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         return store.list_chats_for_idea(c, idea_id)
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_chat(chat_id: int) -> dict[str, Any] | None:
     with _conn() as c:
         return store.get_chat(c, chat_id)
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def load_chat_messages(chat_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         return store.load_chat_messages(c, chat_id)
 
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def get_variants(idea_id: int) -> list[dict[str, Any]]:
     with _conn() as c:
         _, variants = store.get_idea_with_variants(c, idea_id)
@@ -413,6 +452,7 @@ def get_variants(idea_id: int) -> list[dict[str, Any]]:
 
 # ───── Dashboard metrics ─────────────────────────────────────────────────
 
+@st.cache_data(ttl=_CACHE_TTL, show_spinner=False)
 def tokens_today() -> dict[str, int]:
     today_str = date.today().isoformat()
     like = f"{today_str}%"

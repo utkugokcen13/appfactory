@@ -1026,6 +1026,10 @@ def _render_launcher_form() -> None:
         # its runs row (no fixed sleep — the fragment polls every 1s).
         st.session_state["pending_run_started"] = time.time()
         st.session_state["pending_run_log"] = log_path.name
+        # Drop cached read results so the new run shows up on home/runs
+        # without waiting for the @st.cache_data TTL to expire.
+        from factory.ui import data as _data
+        _data.invalidate_caches()
         st.toast(f"Run launched · log: {log_path.name}", icon="🚀")
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)

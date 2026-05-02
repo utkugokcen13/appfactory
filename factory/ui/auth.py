@@ -114,22 +114,32 @@ def require_login() -> str:
         _render_sidebar_user(auth)
         return st.session_state.get("username", "")
 
-    # Otherwise, render the login form. This both consumes the cookie (in
-    # case we missed it above) and shows the username/password inputs.
-    auth.login(location="main", key="login_widget")
+    # Render the login form inside a placeholder. The placeholder lets us
+    # WIPE the form before rerun() so the user doesn't see it lingering on
+    # screen during the redirect transition.
+    form_slot = st.empty()
+    with form_slot.container():
+        auth.login(location="main", key="login_widget")
 
-    # If login() just succeeded (form submission or cookie acceptance), the
-    # session state is now True — but we already drew the form earlier in
-    # this run. Force a rerun so the page re-renders via the fast path with
-    # no stale form on screen.
+    # If login() just succeeded (form submit or cookie), replace the form
+    # with a "Loading…" spinner and rerun. The spinner stays on screen
+    # during the transition so the UX feels instant.
     if st.session_state.get("authentication_status") is True:
+        form_slot.empty()
+        form_slot.markdown(
+            "<div class='auth-redirect'>"
+            "<div class='auth-redirect-spinner'></div>"
+            "<div class='auth-redirect-text'>Welcome — loading dashboard…</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.rerun()
 
     status = st.session_state.get("authentication_status")
     if status is False:
         st.error("Username veya şifre hatalı.")
     elif status is None:
-        st.info("Devam etmek için giriş yap.")
+        st.caption("Devam etmek için giriş yap.")
 
     st.stop()
     return ""  # unreachable; satisfies type checker
