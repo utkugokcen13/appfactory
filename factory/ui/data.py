@@ -12,7 +12,9 @@ The TTL is short enough that subprocess writes propagate quickly.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -25,11 +27,58 @@ from factory.ideation import store
 # switches; short enough that subprocess writes show up almost-immediately.
 _CACHE_TTL = 5
 
+# How often the local Turso replica pulls remote changes. The replica is
+# only auto-synced once at boot; without periodic re-syncs, runs launched
+# from another machine (or from migration scripts) won't appear until the
+# Streamlit process restarts. 30s is a reasonable trade-off between
+# freshness and network chatter.
+_REMOTE_SYNC_INTERVAL_S = 30
+_last_remote_sync = 0.0
+
 
 def invalidate_caches() -> None:
     """Clear all @st.cache_data entries in this module. Call after a write
     that the user expects to see immediately (e.g. launching a run)."""
     st.cache_data.clear()
+
+
+def force_remote_sync() -> None:
+    """Pull latest state from Turso right now (ignores the throttle).
+    Useful right after a migration or when the user clicks 'Refresh'."""
+    global _last_remote_sync
+    if not (os.environ.get("LIBSQL_URL") and os.environ.get("LIBSQL_AUTH_TOKEN")):
+        return
+    try:
+        conn = _shared_conn()
+        if hasattr(conn, "sync"):
+            conn.sync()
+            _last_remote_sync = time.time()
+    except Exception:  # noqa: BLE001
+        try:
+            _shared_conn.clear()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _maybe_pull_remote() -> None:
+    """Throttled re-sync. Called from `_conn()` so reads see remote changes
+    within `_REMOTE_SYNC_INTERVAL_S` even if no new local writes happen."""
+    global _last_remote_sync
+    if not (os.environ.get("LIBSQL_URL") and os.environ.get("LIBSQL_AUTH_TOKEN")):
+        return
+    now = time.time()
+    if now - _last_remote_sync < _REMOTE_SYNC_INTERVAL_S:
+        return
+    _last_remote_sync = now
+    try:
+        conn = _shared_conn()
+        if hasattr(conn, "sync"):
+            conn.sync()
+    except Exception:  # noqa: BLE001
+        try:
+            _shared_conn.clear()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @st.cache_resource(show_spinner=False)
@@ -55,6 +104,7 @@ def _conn():  # type: ignore[no-untyped-def]
     On any exception inside the with-block, the cache is invalidated so
     the next caller gets a fresh connection (in case the existing one
     got into a bad state — disconnected, mid-transaction, etc.)."""
+    _maybe_pull_remote()
     conn = _shared_conn()
     try:
         yield conn
