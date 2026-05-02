@@ -9,16 +9,27 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from factory.ideation import store
 
 
+@contextmanager
 def _conn():  # type: ignore[no-untyped-def]
-    """Open a read-only-ish connection routed through the central store
-    (handles SQLite vs Turso libSQL embedded-replica transparently)."""
-    return store.open_connection()
+    """Open a connection routed through the central store (handles SQLite vs
+    Turso libSQL embedded-replica transparently). Wrapped as a contextmanager
+    so `with _conn() as c:` works on both backends — libsql's Connection
+    doesn't natively support the `with` protocol."""
+    conn = store.open_connection()
+    try:
+        yield conn
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _rows(cur) -> list[dict[str, Any]]:
@@ -147,7 +158,7 @@ def list_ideas_with_filters(
     with _conn() as c:
         rows = _rows(c.execute(
             f"SELECT * FROM ideas WHERE {where} ORDER BY score IS NULL, score DESC, id DESC LIMIT ?",
-            params,
+            tuple(params),  # libsql requires tuple; sqlite3 accepts both
         ))
     return [_hydrate_idea(r) for r in rows]
 
@@ -203,7 +214,7 @@ def list_signals_with_filters(
         rows = _rows(c.execute(
             f"SELECT * FROM signals {where}"
             f" ORDER BY collected_at DESC LIMIT ? OFFSET ?",
-            params,
+            tuple(params),
         ))
     for s in rows:
         if s.get("metadata"):
@@ -235,7 +246,7 @@ def count_signals_with_filters(
         params.append(after)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     with _conn() as c:
-        row = c.execute(f"SELECT COUNT(*) FROM signals {where}", params).fetchone()
+        row = c.execute(f"SELECT COUNT(*) FROM signals {where}", tuple(params)).fetchone()
     return int(row[0])
 
 

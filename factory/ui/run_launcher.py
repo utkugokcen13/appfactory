@@ -51,10 +51,22 @@ STALE_AFTER_MIN = 30
 NO_PROGRESS_MIN = 10
 
 
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
 def _conn():  # type: ignore[no-untyped-def]
     """Routed through the central store — handles SQLite vs Turso libSQL
-    embedded-replica transparently."""
-    return store.open_connection()
+    embedded-replica transparently. Wrapped as a contextmanager because
+    libsql's Connection doesn't natively support `with`."""
+    conn = store.open_connection()
+    try:
+        yield conn
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def mark_stale_runs() -> int:

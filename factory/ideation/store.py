@@ -174,10 +174,41 @@ def _is_turso_mode() -> bool:
     return bool(os.environ.get("LIBSQL_URL") and os.environ.get("LIBSQL_AUTH_TOKEN"))
 
 
+class _DictRow(dict):
+    """Row class that supports BOTH dict-style (row['name']) AND sqlite3.Row-
+    style (row[0], iter(row) → values) access. Used as row_factory on both
+    backends so callers don't need to know which DB they're talking to."""
+
+    __slots__ = ("_values",)
+
+    def __init__(self, cursor, values):  # type: ignore[no-untyped-def]
+        super().__init__(
+            (col[0], val) for col, val in zip(cursor.description, values)
+        )
+        self._values = tuple(values)
+
+    def __getitem__(self, key):  # type: ignore[no-untyped-def]
+        if isinstance(key, int):
+            return self._values[key]
+        return super().__getitem__(key)
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._values)
+
+
+def _set_dict_row_factory(conn) -> None:  # type: ignore[no-untyped-def]
+    """Best-effort install of the unified row_factory. Silent fallback on
+    backends that reject the assignment."""
+    try:
+        conn.row_factory = _DictRow
+    except (AttributeError, TypeError):
+        pass
+
+
 def _open_raw_sqlite(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=15.0)
-    conn.row_factory = sqlite3.Row
+    _set_dict_row_factory(conn)
     # WAL = concurrent UI reads while a run subprocess writes.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -194,6 +225,7 @@ def _open_raw_turso(db_path: Path):  # type: ignore[no-untyped-def]
         sync_url=os.environ["LIBSQL_URL"],
         auth_token=os.environ["LIBSQL_AUTH_TOKEN"],
     )
+    _set_dict_row_factory(conn)
     # Pull latest from remote on open. Non-fatal if it fails (e.g. cold
     # start with empty remote): we'll still work locally and push on commit.
     try:
@@ -643,7 +675,7 @@ def search_signals(
     rows = conn.execute(
         f"SELECT id, source, external_id, title, content, url, metadata, collected_at"
         f" FROM signals {where} ORDER BY collected_at DESC LIMIT ?",
-        params,
+        tuple(params),
     ).fetchall()
     return [dict(r) for r in rows]
 
