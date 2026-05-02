@@ -111,6 +111,25 @@ header [data-testid="stToolbar"] {{
   display: none !important;
 }}
 
+/* ── Kill the stale-page blur during reruns ─────────────────────────────
+   By default Streamlit dims the whole page (opacity 0.5) while a script
+   is rerunning, which makes tab switches feel like the page hangs even
+   when it's actually quick. Override that. */
+[data-testid="stAppViewContainer"],
+section.main,
+[data-testid="stMain"] {{
+  opacity: 1 !important;
+  filter: none !important;
+}}
+[data-stale="true"] {{
+  opacity: 1 !important;
+  filter: none !important;
+}}
+/* Hide the corner "Running..." status pill — it draws attention to lag. */
+[data-testid="stStatusWidget"] {{
+  display: none !important;
+}}
+
 /* ───── Sidebar: always visible, clearly differentiated from body ──── */
 section[data-testid="stSidebar"],
 div[data-testid="stSidebar"] {{

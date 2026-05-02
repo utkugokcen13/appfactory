@@ -32,20 +32,38 @@ def invalidate_caches() -> None:
     st.cache_data.clear()
 
 
+@st.cache_resource(show_spinner=False)
+def _shared_conn():  # type: ignore[no-untyped-def]
+    """One open connection per Streamlit process, kept alive across reruns.
+
+    Opening a libsql_experimental connection has fixed overhead (file open
+    + initial sync handshake on first call). We pay it once at boot and
+    reuse the same Connection object for every subsequent query.
+
+    Concurrency: SQLite + WAL allows multiple readers concurrently; writes
+    serialize. For 4-5 friend-level usage this is fine. If a query throws,
+    the caller evicts via `_shared_conn.clear()` so the next call gets a
+    fresh connection."""
+    return store.open_connection()
+
+
 @contextmanager
 def _conn():  # type: ignore[no-untyped-def]
-    """Open a connection routed through the central store (handles SQLite vs
-    Turso libSQL embedded-replica transparently). Wrapped as a contextmanager
-    so `with _conn() as c:` works on both backends — libsql's Connection
-    doesn't natively support the `with` protocol."""
-    conn = store.open_connection()
+    """Yields a shared, cached connection. Doesn't close on exit — the
+    @st.cache_resource lifecycle owns the connection.
+
+    On any exception inside the with-block, the cache is invalidated so
+    the next caller gets a fresh connection (in case the existing one
+    got into a bad state — disconnected, mid-transaction, etc.)."""
+    conn = _shared_conn()
     try:
         yield conn
-    finally:
+    except Exception:
         try:
-            conn.close()
+            _shared_conn.clear()
         except Exception:  # noqa: BLE001
             pass
+        raise
 
 
 def _rows(cur) -> list[dict[str, Any]]:

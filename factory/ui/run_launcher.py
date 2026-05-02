@@ -52,21 +52,22 @@ NO_PROGRESS_MIN = 10
 
 
 from contextlib import contextmanager as _contextmanager
+from factory.ui import data as _data
 
 
 @_contextmanager
 def _conn():  # type: ignore[no-untyped-def]
-    """Routed through the central store — handles SQLite vs Turso libSQL
-    embedded-replica transparently. Wrapped as a contextmanager because
-    libsql's Connection doesn't natively support `with`."""
-    conn = store.open_connection()
+    """Routed through the data module's cached connection — same singleton
+    is reused across reruns and across data.py / run_launcher.py."""
+    conn = _data._shared_conn()
     try:
         yield conn
-    finally:
+    except Exception:
         try:
-            conn.close()
+            _data._shared_conn.clear()
         except Exception:  # noqa: BLE001
             pass
+        raise
 
 
 def mark_stale_runs() -> int:
