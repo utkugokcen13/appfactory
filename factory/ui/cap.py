@@ -15,6 +15,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
+import streamlit as st
+
 from factory.ideation import store
 
 # ── Default caps (override via env vars) ────────────────────────────────
@@ -48,34 +50,50 @@ class CapStatus(NamedTuple):
     concurrent_now: int
 
 
+@st.cache_data(ttl=10, show_spinner=False)
+def _cached_counts(username: str, today_start: str, tag: str) -> tuple[int, int, int]:
+    """Cached for 10s so widget interactions in the launcher modal don't
+    re-query the DB on every keystroke. Cache key includes today_start so
+    the cache rolls over at midnight UTC automatically."""
+    from factory.ui import data as _data
+    c = _data._shared_conn()
+    row = c.execute(
+        "SELECT "
+        "  COALESCE(SUM(CASE WHEN started_at >= ? THEN 1 ELSE 0 END), 0) AS runs_today, "
+        "  COALESCE(SUM(CASE WHEN started_at >= ? THEN input_tokens + output_tokens ELSE 0 END), 0) AS tokens_today, "
+        "  COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS concurrent_now "
+        "FROM runs WHERE agent = ?",
+        (today_start, today_start, tag),
+    ).fetchone()
+    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+
+
+def invalidate() -> None:
+    """Clear the cap counts cache. Call after launching a run so the next
+    `check()` reflects the new in-flight state immediately."""
+    try:
+        _cached_counts.clear()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def check(username: str) -> CapStatus:
     """Inspect today's run / token usage for `username` and decide whether
-    a new run is allowed. Returns the counts so the UI can surface them."""
+    a new run is allowed. Returns the counts so the UI can surface them.
+
+    Backed by a 10s TTL cache (`_cached_counts`) so the launcher modal,
+    which re-runs `check()` on every widget interaction, doesn't hammer
+    the DB. Call `cap.invalidate()` after spawning a run.
+    """
     today_start = (
         datetime.now(timezone.utc)
         .replace(hour=0, minute=0, second=0, microsecond=0)
         .isoformat()
     )
     tag = agent_tag(username)
-
-    with store.connect() as c:
-        runs_today = c.execute(
-            "SELECT COUNT(*) FROM runs WHERE agent = ? AND started_at >= ?",
-            (tag, today_start),
-        ).fetchone()[0]
-        tokens_today = c.execute(
-            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) "
-            "FROM runs WHERE agent = ? AND started_at >= ?",
-            (tag, today_start),
-        ).fetchone()[0]
-        concurrent_now = c.execute(
-            "SELECT COUNT(*) FROM runs WHERE agent = ? AND status = 'running'",
-            (tag,),
-        ).fetchone()[0]
-
-    runs_today = int(runs_today or 0)
-    tokens_today = int(tokens_today or 0)
-    concurrent_now = int(concurrent_now or 0)
+    runs_today, tokens_today, concurrent_now = _cached_counts(
+        username, today_start, tag,
+    )
 
     if concurrent_now >= MAX_CONCURRENT_PER_USER:
         return CapStatus(

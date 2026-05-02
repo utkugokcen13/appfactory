@@ -114,14 +114,14 @@ header [data-testid="stToolbar"] {{
 /* ── Kill the stale-page blur during reruns ─────────────────────────────
    By default Streamlit dims the whole page (opacity 0.5) while a script
    is rerunning, which makes tab switches feel like the page hangs even
-   when it's actually quick. Override that. */
-[data-testid="stAppViewContainer"],
-section.main,
-[data-testid="stMain"] {{
-  opacity: 1 !important;
-  filter: none !important;
-}}
-[data-stale="true"] {{
+   when it's actually quick. Override that.
+
+   Critically, we ONLY suppress staleness on the sidebar — that way the
+   menu never visibly flickers when switching pages. Main content can
+   still go briefly stale while the new page's data loads, which gives
+   the user honest "loading" feedback. */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] [data-stale="true"] {{
   opacity: 1 !important;
   filter: none !important;
 }}
@@ -129,16 +129,37 @@ section.main,
 [data-testid="stStatusWidget"] {{
   display: none !important;
 }}
+/* Subtle fade-in on the main content when a new page renders, so tab
+   switches feel like a content swap (not a full reload of the chrome). */
+[data-testid="stMainBlockContainer"] {{
+  animation: page-fade-in 0.18s ease-out;
+}}
+@keyframes page-fade-in {{
+  from {{ opacity: 0.6; transform: translateY(2px); }}
+  to   {{ opacity: 1; transform: translateY(0); }}
+}}
 
-/* ───── Sidebar: always visible, clearly differentiated from body ──── */
-section[data-testid="stSidebar"],
-div[data-testid="stSidebar"] {{
-  background: var(--sidebar-bg) !important;
-  border-right: 1px solid var(--border) !important;
-  min-width: 232px !important;
-  width: 232px !important;
-  visibility: visible !important;
-  transform: none !important;
+/* ───── Sidebar: always visible on desktop, drawer on mobile ─────────
+   Desktop ≥769px: pin sidebar to 232px so it never collapses on tab nav.
+   Mobile ≤768px:  let Streamlit's default mobile drawer handle it
+                   (sidebar slides in from the left over content). */
+@media (min-width: 769px) {{
+  section[data-testid="stSidebar"],
+  div[data-testid="stSidebar"] {{
+    background: var(--sidebar-bg) !important;
+    border-right: 1px solid var(--border) !important;
+    min-width: 232px !important;
+    width: 232px !important;
+    visibility: visible !important;
+    transform: none !important;
+  }}
+  /* Hide collapse/expand affordances only on desktop. */
+  [data-testid="stSidebarCollapseButton"],
+  [data-testid="stSidebarCollapsedControl"],
+  [data-testid="collapsedControl"],
+  button[kind="header"] {{
+    display: none !important;
+  }}
 }}
 section[data-testid="stSidebar"] > div,
 div[data-testid="stSidebar"] > div {{
@@ -146,12 +167,35 @@ div[data-testid="stSidebar"] > div {{
   padding-top: 16px;
 }}
 
-/* Hide every collapse/expand affordance — sidebar stays pinned */
-[data-testid="stSidebarCollapseButton"],
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"],
-button[kind="header"] {{
-  display: none !important;
+/* Mobile: sidebar collapses by default, becomes an overlay drawer. The
+   default Streamlit collapse button (top-left burger) reappears so the
+   user can open it. Main content takes the full viewport width. */
+@media (max-width: 768px) {{
+  section[data-testid="stSidebar"] {{
+    background: var(--sidebar-bg) !important;
+    border-right: 1px solid var(--border) !important;
+  }}
+  /* Make sure main content isn't pushed off-screen when sidebar is open */
+  [data-testid="stAppViewContainer"] section.main,
+  [data-testid="stAppViewContainer"] [data-testid="stMain"] {{
+    width: 100% !important;
+    max-width: 100% !important;
+  }}
+  .main .block-container {{
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    padding-top: 16px !important;
+  }}
+  /* Tighten hero + page heads on small screens */
+  .hero-title {{ font-size: 26px !important; }}
+  .page-head-title {{ font-size: 22px !important; }}
+  /* Make the brand show the burger control, but keep collapse buttons
+     visible on mobile so the user can dismiss the drawer */
+  [data-testid="stSidebarCollapseButton"],
+  [data-testid="stSidebarCollapsedControl"],
+  [data-testid="collapsedControl"] {{
+    display: flex !important;
+  }}
 }}
 
 /* Brand header inside sidebar */

@@ -127,7 +127,13 @@ def _python_executable() -> str:
 def spawn_run(cfg: RunConfig, *, username: str | None = None) -> Path:
     """Write config JSON + spawn detached subprocess. Returns the log file path.
     `username` is forwarded to the child via APPFACTORY_USER so the runs row
-    is tagged correctly for per-user cap accounting."""
+    is tagged correctly for per-user cap accounting.
+
+    On Streamlit Cloud, secrets are exposed via st.secrets BUT also as env
+    vars — we still copy `os.environ` to be safe. We also explicitly forward
+    Turso + AWS keys read via st.secrets in case the env-var bridge isn't
+    populated for child processes.
+    """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -142,6 +148,29 @@ def spawn_run(cfg: RunConfig, *, username: str | None = None) -> Path:
     env = os.environ.copy()
     if username:
         env["APPFACTORY_USER"] = username
+
+    # Streamlit Cloud secrets fallback: read st.secrets and forward any
+    # keys the subprocess will need but might be missing from os.environ.
+    # Silently skip if secrets aren't configured (e.g. local dev).
+    try:
+        for key in (
+            "AWS_BEARER_TOKEN_BEDROCK",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_REGION",
+            "LIBSQL_URL",
+            "LIBSQL_AUTH_TOKEN",
+        ):
+            if key not in env:
+                try:
+                    val = st.secrets.get(key)
+                except (FileNotFoundError, KeyError, AttributeError):
+                    val = None
+                if val:
+                    env[key] = str(val)
+    except Exception:  # noqa: BLE001
+        pass
+
     log_f = open(log_path, "ab")
     subprocess.Popen(
         cmd,
@@ -499,13 +528,30 @@ def _booting_skeleton_fragment() -> None:
         return  # Nothing to render
 
     secs = max(0, int(time.time() - started_at))
-    # Give up after ~60s — likely the subprocess crashed silently
+    # Give up after ~60s — likely the subprocess crashed silently. Surface
+    # the tail of the launcher log so the user can see the actual error
+    # without SSH'ing into the server.
     if secs > 60:
+        log_name = st.session_state.pop("pending_run_log", None)
         st.session_state.pop("pending_run_started", None)
+        log_tail = ""
+        if log_name:
+            try:
+                log_path = LOG_DIR / log_name
+                if log_path.exists():
+                    log_tail = log_path.read_text(errors="replace")[-2000:]
+            except Exception:  # noqa: BLE001
+                pass
         st.error(
-            "The run didn't start within 60s. Check your AWS / Bedrock "
-            "credentials and the latest log file in `output/ideation/logs/`."
+            "The run didn't start within 60s. The subprocess likely crashed "
+            "before it could insert its row. Most common cause: missing "
+            "AWS / Bedrock credentials in Streamlit Cloud secrets."
         )
+        if log_tail:
+            with st.expander("Launcher log (last 2KB)", expanded=True):
+                st.code(log_tail, language="text")
+        else:
+            st.caption("(no log file found — check `output/ideation/logs/`)")
         return
 
     st.markdown(
@@ -1020,8 +1066,15 @@ def _render_launcher_form() -> None:
         use_container_width=True,
         disabled=btn_disabled,
     ):
-        cfg = _collect_config_from_state()
-        log_path = spawn_run(cfg, username=username or None)
+        try:
+            cfg = _collect_config_from_state()
+            log_path = spawn_run(cfg, username=username or None)
+        except Exception as e:  # noqa: BLE001
+            st.error(
+                f"Couldn't launch run — {type(e).__name__}: {e}\n\n"
+                "Check that AWS / Bedrock secrets are set in Streamlit Cloud."
+            )
+            return
         # Mark "pending" — the page-level booting skeleton renders immediately,
         # and auto-upgrades to the live monitor once the subprocess inserts
         # its runs row (no fixed sleep — the fragment polls every 1s).
@@ -1029,8 +1082,9 @@ def _render_launcher_form() -> None:
         st.session_state["pending_run_log"] = log_path.name
         # Drop cached read results so the new run shows up on home/runs
         # without waiting for the @st.cache_data TTL to expire.
-        from factory.ui import data as _data
+        from factory.ui import data as _data, cap
         _data.invalidate_caches()
+        cap.invalidate()
         st.toast(f"Run launched · log: {log_path.name}", icon="🚀")
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
