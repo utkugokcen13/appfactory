@@ -158,9 +158,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _apply_migrations(conn: sqlite3.Connection) -> None:
-    """Idempotent ALTER TABLEs for columns added after the initial schema."""
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(ideas)")}
+def _apply_migrations(conn) -> None:  # type: ignore[no-untyped-def]
+    """Idempotent ALTER TABLEs for columns added after the initial schema.
+    Uses .fetchall() so it works with both sqlite3.Cursor (iterable) and
+    libsql_experimental.Cursor (not iterable — needs explicit fetch)."""
+    rows = conn.execute("PRAGMA table_info(ideas)").fetchall()
+    cols = {r[1] for r in rows}
     if "parent_idea_id" not in cols:
         conn.execute("ALTER TABLE ideas ADD COLUMN parent_idea_id INTEGER")
     if "pivot_note" not in cols:
