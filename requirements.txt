@@ -9,6 +9,11 @@ pandas>=2.2.0
 pytrends>=4.9.2
 # Auth: bcrypt-hashed username/password gate
 streamlit-authenticator>=0.3.2
+# stauth's bundled cookie writer (extra-streamlit-components) silently
+# no-ops on newer Streamlit, breaking session persistence. We sign our
+# own JWT cookie via streamlit-cookies-controller (write) + st.context.cookies (read).
+streamlit-cookies-controller>=0.0.4
+PyJWT>=2.8.0
 bcrypt>=4.0.0
 PyYAML>=6.0
 # Persistent DB on Streamlit Cloud (ephemeral disk → Turso embedded replica)

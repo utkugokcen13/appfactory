@@ -528,10 +528,12 @@ def _booting_skeleton_fragment() -> None:
         return  # Nothing to render
 
     secs = max(0, int(time.time() - started_at))
-    # Give up after ~60s — likely the subprocess crashed silently. Surface
-    # the tail of the launcher log so the user can see the actual error
-    # without SSH'ing into the server.
-    if secs > 60:
+    # Cold-start on Streamlit Cloud (subprocess Python boot + heavy imports +
+    # libsql initial replica sync) regularly takes 60-180s. Only after 5 min
+    # of no row insertion do we treat it as a real crash.
+    BOOT_TIMEOUT_S = 300
+    SLOW_HINT_AT_S = 60
+    if secs > BOOT_TIMEOUT_S:
         log_name = st.session_state.pop("pending_run_log", None)
         st.session_state.pop("pending_run_started", None)
         log_tail = ""
@@ -543,9 +545,10 @@ def _booting_skeleton_fragment() -> None:
             except Exception:  # noqa: BLE001
                 pass
         st.error(
-            "The run didn't start within 60s. The subprocess likely crashed "
-            "before it could insert its row. Most common cause: missing "
-            "AWS / Bedrock credentials in Streamlit Cloud secrets."
+            f"The run didn't start within {BOOT_TIMEOUT_S // 60} minutes. "
+            "The subprocess likely crashed before it could insert its row. "
+            "Most common cause: missing AWS / Bedrock credentials in "
+            "Streamlit Cloud secrets."
         )
         if log_tail:
             with st.expander("Launcher log (last 2KB)", expanded=True):
@@ -554,6 +557,12 @@ def _booting_skeleton_fragment() -> None:
             st.caption("(no log file found — check `output/ideation/logs/`)")
         return
 
+    slow_hint = (
+        "<div class='booting-hint'>Cold start — model + tools load and Turso "
+        "replica syncs once per process. This usually takes up to ~3 min on "
+        "Streamlit Cloud.</div>"
+        if secs > SLOW_HINT_AT_S else ""
+    )
     st.markdown(
         f"""
         <div class='booting'>
@@ -570,6 +579,7 @@ def _booting_skeleton_fragment() -> None:
             <div class='booting-step active'>↻ Loading model & tools</div>
             <div class='booting-step'>○ Issuing first tool call</div>
           </div>
+          {slow_hint}
           <div class='log-feed'>
             <div class='log-skeleton'>
               <div class='log-skeleton-row'></div>

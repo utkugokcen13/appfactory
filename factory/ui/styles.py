@@ -789,6 +789,13 @@ p, li, label, span {{ color: var(--text); }}
 }}
 .booting-step.done   {{ color: {COLORS['score_hi']}; }}
 .booting-step.active {{ color: var(--primary); animation: pulse-fade 1.4s ease-in-out infinite; }}
+.booting-hint {{
+  font-size: 12px; color: var(--text-sub); line-height: 1.5;
+  margin: -4px 2px 12px; padding: 8px 12px;
+  background: rgba(96,165,250,0.06);
+  border-left: 2px solid rgba(96,165,250,0.35);
+  border-radius: 6px;
+}}
 @keyframes pulse-fade {{
   0%, 100% {{ opacity: 0.9; }}
   50%      {{ opacity: 0.55; }}

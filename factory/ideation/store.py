@@ -276,7 +276,7 @@ class _DictConnectionWrapper:
 
 def _open_raw_sqlite(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=15.0)
+    conn = sqlite3.connect(db_path, timeout=15.0, check_same_thread=False)
     _set_dict_row_factory(conn)
     # WAL = concurrent UI reads while a run subprocess writes.
     conn.execute("PRAGMA journal_mode=WAL")
